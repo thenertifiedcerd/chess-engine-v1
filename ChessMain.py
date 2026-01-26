@@ -1,4 +1,6 @@
 # python
+# near other imports
+from stockfish_adapter import StockfishAdapter
 import pygame as p
 import ChessEngine
 from ChessEngine import GameState
@@ -21,6 +23,18 @@ def main():
     clock = p.time.Clock()
     screen.fill(p.Color("white"))
     gs = ChessEngine.GameState()
+        # choose roles
+    playerOne = True  # human plays White
+    playerTwo = True  # AI plays Black (set False to have human vs human)
+
+    # start Stockfish if either player is an AI using Stockfish
+    engine = None
+    if playerTwo:
+        engine = StockfishAdapter(path='stockfish')  # or full path to binary
+        engine.start()
+        # optional: make Stockfish play weaker (human-like)
+        engine.configure({'UCI_LimitStrength': 'true', 'UCI_Elo': '1500'})
+        engine.new_game()
     validMoves = gs.getValidMoves()
     moveMade = False # flag variable for when a move is made
     loadImages() # this should run only once.
@@ -28,8 +42,6 @@ def main():
     sqSelected = ()
     playerClicks = [] # keep track of player clicks (two tuples: [(6,4), (4,4)])
     gameOver = False
-    playerOne = True # if human is white, if AI is white, false
-    playerTwo = False # same as above but for black
     while running:
 
         for e in p.event.get():
