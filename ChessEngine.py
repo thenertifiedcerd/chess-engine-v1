@@ -1,3 +1,5 @@
+from SmartMoveFinder import SmartMoveFinder
+
 ### This class is responsible for storing all the information about the current state of a chess game. It will also be responsible for determining valid moves at the current state. It will also be a move log.
 
 class GameState:
@@ -35,14 +37,17 @@ class GameState:
 
     ### makeMove() will execute a move. This will not work for castling, pawn promotion, and en-passant.
     def makeMove(self, move):
-        self.board[move.startRow][move.startCol] = "--" # empty the start square
-        self.board[move.endRow][move.endCol] = move.pieceMoved # move the piece to the end square
-        self.moveLog.append(move) # log the move
-        self.whiteToMove = not self.whiteToMove # switch turns
-        if move.pieceMoved == "wK":
+        self.board[move.startRow][move.startCol] = "--"
+        self.board[move.endRow][move.endCol] = move.pieceMoved
+        self.moveLog.append(move)
+        self.whiteToMove = not self.whiteToMove
+
+        # --- FIX: Ensure these match "Position", not "Location" ---
+        if move.pieceMoved == 'wK':
             self.whiteKingPosition = (move.endRow, move.endCol)
-        elif move.pieceMoved == "bK":
+        elif move.pieceMoved == 'bK':
             self.blackKingPosition = (move.endRow, move.endCol)
+        # ----------------------------------------------------------
 
         # pawn promotion
         if move.isPawnPromotion:
@@ -119,8 +124,6 @@ class GameState:
     ### All moves considering checks
 
     def getValidMoves(self):
-        for log in self.castleRightsLog:
-            print(log.wks, log.bks, log.wqs, log.bqs, end =' | ')
         tempEnPassantPossible = self.enPassantPossible
         tempCastleRights = castleRights(self.currentCastlingRights.wks,
                                         self.currentCastlingRights.bks,
@@ -136,8 +139,8 @@ class GameState:
         for i in range(len(moves)-1, -1, -1):
             self.makeMove(moves[i])
             # generate all opponent's moves
-            oppMoves = self.getAllPossibleMoves()
-        # see if these mmoves attack the king  
+            # oppMoves = self.getAllPossibleMoves()
+        # see if these moves attack the king
             self.whiteToMove = not self.whiteToMove
             if self.inCheck():
                 moves.remove(moves[i]) # if they attack the king, then it's invalid
@@ -178,12 +181,27 @@ class GameState:
 
     def getAllPossibleMoves(self):
         moves = []
-        for r in range(len(self.board)): # number of rows
-            for c in range(len(self.board[r])): # number of columns in row
-                turn  = self.board[r][c][0] # color of piece
+        for r in range(len(self.board)):
+            for c in range(len(self.board[r])):
+                turn = self.board[r][c][0]
+
+                # --- CRITICAL CHECK: Do you have the Black turn logic here? ---
                 if (turn == 'w' and self.whiteToMove) or (turn == 'b' and not self.whiteToMove):
+                    # --------------------------------------------------------------
+
                     piece = self.board[r][c][1]
-                    self.moveFunctions[piece](r, c, moves) # calls the appropriate moveFunction based on piece type
+                    if piece == 'p':
+                        self.getPawnMoves(r, c, moves)
+                    elif piece == 'R':
+                        self.getRookMoves(r, c, moves)
+                    elif piece == 'N':
+                        self.getKnightMoves(r, c, moves)
+                    elif piece == 'B':
+                        self.getBishopMoves(r, c, moves)
+                    elif piece == 'Q':
+                        self.getQueenMoves(r, c, moves)
+                    elif piece == 'K':
+                        self.getKingMoves(r, c, moves)
         return moves
     
     def getPawnMoves(self, r, c, moves):
