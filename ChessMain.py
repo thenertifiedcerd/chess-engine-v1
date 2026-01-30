@@ -31,8 +31,8 @@ def main():
     sqSelected = ()
     playerClicks = []  # keep track of player clicks (two tuples: [(6,4), (4,4)])
     gameOver = False
-    playerOne = True  # If True, human plays White. If False, AI plays White.
-    playerTwo = False  # If True, human plays Black. If False, AI plays Black.
+    playerOne = True # If True, human plays White. If False, AI plays White.
+    playerTwo = False # If True, human plays Black. If False, AI plays Black.
 
     # --- STOCKFISH SETUP (Uncomment if using the adapter) ---
     # stockfish = StockfishAdapter(path="stockfish.exe") # Make sure path is correct
@@ -111,12 +111,10 @@ def main():
 
         # --- AI MOVE FINDER LOGIC ---
         if not gameOver and not humanTurn and not moveMade:
-
             # OPTION 1: Random Mover (Currently Active)
             AIMove = SmartMoveFinder.findBestMove(gs, validMoves)
             if AIMove is None:
                 AIMove = SmartMoveFinder.findRandomMove(validMoves)
-
             # OPTION 2: Stockfish (Uncomment to use)
             # stockfish.set_position_from_gs(gs)
             # uci_move = stockfish.go(movetime=1000)

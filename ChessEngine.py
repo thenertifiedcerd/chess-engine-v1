@@ -51,8 +51,8 @@ class GameState:
 
         # pawn promotion
         if move.isPawnPromotion:
-            promotedPiece = input("Promote to Q, R, B, or N: ")
-            self.board[move.endRow][move.endCol] = move.pieceMoved[0] + promotedPiece
+            # promotedPiece = input("Promote to Q, R, B, or N: ")
+            self.board[move.endRow][move.endCol] = move.pieceMoved[0] + move.promotedPiece
 
         # en passant capture
         if move.isEnPassantMove:
@@ -79,6 +79,8 @@ class GameState:
                                                  self.currentCastlingRights.bks,
                                                  self.currentCastlingRights.wqs,
                                                  self.currentCastlingRights.bqs))
+        self.checkMate = False
+        self.staleMate = False
 
     ### Undo the last move
     def undoMove(self):
@@ -203,51 +205,93 @@ class GameState:
                     elif piece == 'K':
                         self.getKingMoves(r, c, moves)
         return moves
-    
+
     def getPawnMoves(self, r, c, moves):
-        if self.whiteToMove: # white pawn moves (move up the board, decreasing row)
-            # forward one
-            if r-1 >= 0 and self.board[r-1][c] == "--":
-                moves.append(Move((r, c), (r-1, c), self.board))
-                # forward two from starting rank
-                if r == 6 and self.board[r-2][c] == "--":
-                    moves.append(Move((r, c), (r-2, c), self.board))
-            # captures
-            if c-1 >= 0 and r-1 >= 0:
-                target = self.board[r-1][c-1]
+        # WHITE PAWNS
+        if self.whiteToMove:
+            # 1. Forward One
+            if r - 1 >= 0 and self.board[r - 1][c] == "--":
+                if r - 1 == 0:  # Promotion!
+                    moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='Q'))
+                    moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='R'))
+                    moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='B'))
+                    moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='N'))
+                else:
+                    moves.append(Move((r, c), (r - 1, c), self.board))
+                    # Forward Two (Only possible if not promoting)
+                    if r == 6 and self.board[r - 2][c] == "--":
+                        moves.append(Move((r, c), (r - 2, c), self.board))
+
+            # 2. Captures (Left)
+            if c - 1 >= 0 and r - 1 >= 0:
+                target = self.board[r - 1][c - 1]
                 if target != "--" and target[0] == 'b':
-                    moves.append(Move((r, c), (r-1, c-1), self.board))
+                    if r - 1 == 0:  # Promotion!
+                        moves.append(Move((r, c), (r - 1, c - 1), self.board, promotedPiece='Q'))
+                        moves.append(Move((r, c), (r - 1, c - 1), self.board, promotedPiece='R'))
+                        moves.append(Move((r, c), (r - 1, c - 1), self.board, promotedPiece='B'))
+                        moves.append(Move((r, c), (r - 1, c - 1), self.board, promotedPiece='N'))
+                    else:
+                        moves.append(Move((r, c), (r - 1, c - 1), self.board))
                 elif (r - 1, c - 1) == self.enPassantPossible:
-                    moves.append(Move((r, c), (r - 1, c-1), self.board, isEnPassantMove = True))
+                    moves.append(Move((r, c), (r - 1, c - 1), self.board, isEnPassantMove=True))
 
-            if c+1 <= 7 and r-1 >= 0:
-                target = self.board[r-1][c+1]
+            # 3. Captures (Right)
+            if c + 1 <= 7 and r - 1 >= 0:
+                target = self.board[r - 1][c + 1]
                 if target != "--" and target[0] == 'b':
-                    moves.append(Move((r, c), (r-1, c+1), self.board))
+                    if r - 1 == 0:  # Promotion!
+                        moves.append(Move((r, c), (r - 1, c + 1), self.board, promotedPiece='Q'))
+                        moves.append(Move((r, c), (r - 1, c + 1), self.board, promotedPiece='R'))
+                        moves.append(Move((r, c), (r - 1, c + 1), self.board, promotedPiece='B'))
+                        moves.append(Move((r, c), (r - 1, c + 1), self.board, promotedPiece='N'))
+                    else:
+                        moves.append(Move((r, c), (r - 1, c + 1), self.board))
                 elif (r - 1, c + 1) == self.enPassantPossible:
-                    moves.append(Move((r, c), (r - 1, c+1), self.board, isEnPassantMove = True))
+                    moves.append(Move((r, c), (r - 1, c + 1), self.board, isEnPassantMove=True))
 
-        else: # black pawn moves (move down the board, increasing row)
-            # forward one
-            if r+1 <= 7 and self.board[r+1][c] == "--":
-                moves.append(Move((r, c), (r+1, c), self.board))
-                # forward two from starting rank
-                if r == 1 and self.board[r+2][c] == "--":
-                    moves.append(Move((r, c), (r+2, c), self.board))
-            # captures
-            if c-1 >= 0 and r+1 <= 7:
-                target = self.board[r+1][c-1]
+        # BLACK PAWNS
+        else:
+            # 1. Forward One
+            if r + 1 <= 7 and self.board[r + 1][c] == "--":
+                if r + 1 == 7:  # Promotion!
+                    moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='Q'))
+                    moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='R'))
+                    moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='B'))
+                    moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='N'))
+                else:
+                    moves.append(Move((r, c), (r + 1, c), self.board))
+                    # Forward Two
+                    if r == 1 and self.board[r + 2][c] == "--":
+                        moves.append(Move((r, c), (r + 2, c), self.board))
+
+            # 2. Captures (Left)
+            if c - 1 >= 0 and r + 1 <= 7:
+                target = self.board[r + 1][c - 1]
                 if target != "--" and target[0] == 'w':
-                    moves.append(Move((r, c), (r+1, c-1), self.board))
+                    if r + 1 == 7:  # Promotion!
+                        moves.append(Move((r, c), (r + 1, c - 1), self.board, promotedPiece='Q'))
+                        moves.append(Move((r, c), (r + 1, c - 1), self.board, promotedPiece='R'))
+                        moves.append(Move((r, c), (r + 1, c - 1), self.board, promotedPiece='B'))
+                        moves.append(Move((r, c), (r + 1, c - 1), self.board, promotedPiece='N'))
+                    else:
+                        moves.append(Move((r, c), (r + 1, c - 1), self.board))
                 elif (r + 1, c - 1) == self.enPassantPossible:
-                    moves.append(Move((r, c), (r + 1, c - 1), self.board, isEnPassantMove = True))
-            if c+1 <= 7 and r+1 <= 7:
-                target = self.board[r+1][c+1]
-                if target != "--" and target[0] == 'w':
-                    moves.append(Move((r, c), (r+1, c+1), self.board))
-                elif (r + 1, c + 1) == self.enPassantPossible:
-                    moves.append(Move((r, c), (r + 1, c + 1), self.board, isEnPassantMove = True))
+                    moves.append(Move((r, c), (r + 1, c - 1), self.board, isEnPassantMove=True))
 
+            # 3. Captures (Right)
+            if c + 1 <= 7 and r + 1 <= 7:
+                target = self.board[r + 1][c + 1]
+                if target != "--" and target[0] == 'w':
+                    if r + 1 == 7:  # Promotion!
+                        moves.append(Move((r, c), (r + 1, c + 1), self.board, promotedPiece='Q'))
+                        moves.append(Move((r, c), (r + 1, c + 1), self.board, promotedPiece='R'))
+                        moves.append(Move((r, c), (r + 1, c + 1), self.board, promotedPiece='B'))
+                        moves.append(Move((r, c), (r + 1, c + 1), self.board, promotedPiece='N'))
+                    else:
+                        moves.append(Move((r, c), (r + 1, c + 1), self.board))
+                elif (r + 1, c + 1) == self.enPassantPossible:
+                    moves.append(Move((r, c), (r + 1, c + 1), self.board, isEnPassantMove=True))
             # add pawm promotion later on
                     
     def getRookMoves(self, r, c, moves):
@@ -371,7 +415,7 @@ class Move:
     filesToCols = {"a":0, "b":1, "c":2, "d":3, "e":4, "f":5, "g":6, "h":7}
     colsToFiles = {v: k for k, v in filesToCols.items()}
 
-    def __init__(self, startSq, endSq, board, isEnPassantMove = False, isCastleMove = False):
+    def __init__(self, startSq, endSq, board, isEnPassantMove = False, isCastleMove = False, promotedPiece = 'Q'):
         self.startRow = startSq[0]
         self.startCol = startSq[1]
         self.endRow = endSq[0]
@@ -389,7 +433,10 @@ class Move:
         # Castle move
         self.isCastleMove = isCastleMove
         # unique move ID
+        self.promotedPiece = promotedPiece
         self.moveID = self.startRow * 1000 + self.startCol * 100 + self.endRow * 10 + self.endCol
+        if self.isPawnPromotion:
+            self.moveID += ord(self.promotedPiece)
 
     def __eq__(self, other):
         if isinstance(other, Move):
