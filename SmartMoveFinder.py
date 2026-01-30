@@ -14,7 +14,7 @@ knightScores = [[1, 1, 1, 1, 1, 1, 1, 1],
                [1, 2, 2, 2, 2, 2, 2, 1],
                [1, 1, 1, 1, 1, 1, 1, 1]]
 
-rookScores = [[2, 1, 1, 2, 2, 1, 1, 2], # Centralizing on back rank is slightly better
+rookScores = [[2, 1, 2, 3, 3, 3, 2, 2], # Centralizing on back rank is slightly better
              [1, 2, 2, 2, 2, 2, 2, 1],
              [1, 2, 2, 2, 2, 2, 2, 1],
              [1, 2, 2, 2, 2, 2, 2, 1],
@@ -127,6 +127,53 @@ class SmartMoveFinder:
                 gs.undoMove()
             return minScore
 
+    @staticmethod
+    def quiescenceSearch(gs, alpha, beta, turnMultiplier):
+        # Stand pat evaluation
+        stand_pat = turnMultiplier * SmartMoveFinder.scoreBoard(gs)
+        # Hard pruning for optimization
+        if stand_pat >= beta:
+            return beta
+
+        # --- DELTA PRUNING (The Speed Boost) ---
+        # If current score + capturing a Queen is STILL worse than alpha, then there is no point searching capturing a pawn or rook. We are too far behind.
+        # Note: We disable this if we are in endgame (few pieces) or if finding checkmate is priority, but for a simple engine, this saves massive time.
+        delta = 9  # Value of a Queen
+        # If stand_pat is SO BAD that even a Queen capture can't raise it above alpha, give up.
+        if stand_pat < alpha - delta:
+            return alpha
+
+        # 3. Update Alpha
+        if stand_pat > alpha:
+            alpha = stand_pat
+
+        # 4. Generate Moves
+        validMoves = gs.getValidMoves()
+
+        # Move Ordering (extremely important for optimization)
+        def score_move(move):
+            if move.pieceCaptured != '--':
+                captured_piece_type = move.pieceCaptured[1]
+                return 10 * pieceScore.get(captured_piece_type, 0)
+            return 0
+
+        validMoves.sort(key=score_move, reverse=True)
+
+        # 5. Search Loop (captures only)
+        for move in validMoves:
+            if move.pieceCaptured != '--' or move.isPawnPromotion:
+                gs.makeMove(move)
+                score = -SmartMoveFinder.quiescenceSearch(gs, -beta, -alpha, -turnMultiplier)
+                gs.undoMove()
+
+                if score >= beta:
+                    return beta
+                if score > alpha:
+                    alpha = score
+
+        return alpha
+
+    @staticmethod
     def findMoveNegaMax(gs, validMoves, depth, turnMultiplier):
         global nextMove, counter
         counter += 1
@@ -145,31 +192,70 @@ class SmartMoveFinder:
             gs.undoMove()
         return maxScore
 
+    @staticmethod
     def findMoveNegaMaxAlphaBeta(gs, validMoves, depth, alpha, beta, turnMultiplier):
         global nextMove, counter
         counter += 1
+
         if depth == 0:
-            return turnMultiplier * SmartMoveFinder.scoreBoard(gs)
-        random.shuffle(validMoves) # alpha-beta pruning works better with random shuffling, best with move ordering
+            # Instead of returning immediately, enter Quiescence Search
+            return SmartMoveFinder.quiescenceSearch(gs, alpha, beta, turnMultiplier)
+
+        # If the game is over (no moves left), we must return the correct score immediately.
+        # Otherwise, the loop below won't run, and it will default to -CHECKMATE.
+        if len(validMoves) == 0:
+            if gs.checkMate:
+                 return -CHECKMATE
+            else:
+                 return STALEMATE
+
+        # --- MOVE ORDERING LOGIC START ---
+        # Instead of random.shuffle, we sort moves to look at best ones first.
+        # We guess that captures and promotions are usually better moves.
+        def score_move(move):
+            score = 0
+
+            # 1. Prioritize Captures
+            # Assuming your Move class has 'pieceCaptured' (usually a string or None)
+            # If your engine uses 'isCapture', you can check that instead.
+            if move.pieceCaptured != '--':
+                # Look up the score of the captured piece.
+                # Note: You might need to adjust 'move.pieceCaptured[1]' depending on how you store piece strings (e.g. "wP")
+                captured_piece_type = move.pieceCaptured[1]
+                score += 10 * pieceScore.get(captured_piece_type, 0)
+
+            # 2. Prioritize Promotions
+            if move.isPawnPromotion:
+                score += 9  # Value of a Queen
+
+            return score
+
+        # Sort the moves! High scores (captures) go first.
+        validMoves.sort(key=score_move, reverse=True)
+        # --- MOVE ORDERING LOGIC END ---
 
         maxScore = -CHECKMATE
         for move in validMoves:
             gs.makeMove(move)
             nextMoves = gs.getValidMoves()
-            score = -SmartMoveFinder.findMoveNegaMaxAlphaBeta(gs, nextMoves, depth - 1, -beta, -alpha, -turnMultiplier,)
+            score = -SmartMoveFinder.findMoveNegaMaxAlphaBeta(gs, nextMoves, depth - 1, -beta, -alpha, -turnMultiplier)
             gs.undoMove()
+
             if score > maxScore:
                 maxScore = score
                 if depth == DEPTH:
                     nextMove = move
                     print(move, score)
 
+                # Optimization: Stop searching if we found checkmate
+                if maxScore == CHECKMATE:
+                    break
+
             if maxScore > alpha:
                 alpha = maxScore
 
-            if alpha >= beta: # The cutoff
+            if alpha >= beta:
                 break
-
 
         return maxScore
 
@@ -185,34 +271,68 @@ class SmartMoveFinder:
             return STALEMATE
 
         score = 0
+
+        # 1. EVALUATE PIECES (Material + Position)
         for row in range(len(gs.board)):
             for col in range(len(gs.board[row])):
                 square = gs.board[row][col]
                 if square != "--":
-                    # score positionally
-                    piecePositionScore = 0
-                    if square[1] != "K":
-                        if square[1] == "p":
-                            if square[1] == "p":
-                                piecePositionScore = piecePositionScores[square][row][col]
-                            else:
-                                piecePositionScore = piecePositionScores[square[1]][row][col]
-                    #     piecePositionScore = piecePositionScores["N"][row][col]
-                    # elif square[1] == "Q":
-                    #     piecePositionScore = piecePositionScores["Q"][row][col]
-                    # elif square[1] == "K":
-                    #     piecePositionScore = piecePositionScores["K"][row][col]
-                    # elif square[1] == "R":
-                    #     piecePositionScore = piecePositionScores["R"][row][col]
-                    # elif square[1] == "B":
-                    #     piecePositionScore = piecePositionScores["B"][row][col]
-                    # elif square[1] == "p":
-                    #     piecePositionScore = piecePositionScores["p"][row][col]
-                    # else:
-                    #     pass
+                    # Determine piece type and color
+                    piece_type = square[1]
+                    piece_color = square[0]
 
-                    if square[0] == 'w':
-                        score += pieceScore[square[1]] + piecePositionScore * .1
-                    elif square[0] == 'b':
-                        score -= pieceScore[square[1]] - piecePositionScore * .1
+                    # --- POSITION SCORE LOOKUP ---
+                    # Logic:
+                    # 1. Pawns have their own specific tables (wp/bp), so we access them directly.
+                    # 2. Other pieces share a table. White needs to flip the table (7-row)
+                    #    because the tables are defined from Black's perspective (Rank 8 at index 0).
+
+                    if piece_type == 'p':
+                        position_score = piecePositionScores[square][row][col]
+                    else:
+                        if piece_color == 'w':
+                            position_score = piecePositionScores[piece_type][7 - row][col]
+                        else:
+                            position_score = piecePositionScores[piece_type][row][col]
+
+                    # --- MATERIAL SCORE LOOKUP ---
+                    material_score = pieceScore[piece_type]
+
+                    # --- FINAL CALCULATION ---
+                    if piece_color == 'w':
+                        score += material_score + (position_score * 0.1)
+                    elif piece_color == 'b':
+                        score -= (material_score + (position_score * 0.1))
+
+        # 2. EVALUATE CASTLING (Run once per board, not inside the loop!)
+
+        # --- WHITE CASTLING BONUSES ---
+        # Check Short Castle (White): King on g1 (7,6), Rook on f1 (7,5)
+        if gs.board[7][6] == 'wK' and gs.board[7][5] == 'wR':
+            score += 0.5
+
+            # Check Long Castle (White): King on c1 (7,2), Rook on d1 (7,3)
+        if gs.board[7][2] == 'wK' and gs.board[7][3] == 'wR':
+            score += 0.5
+
+        # Punishment for White losing castling rights without castling
+        if gs.board[7][4] == 'wK':  # King still on e1
+            # Assuming 'wks' (white king side) and 'wqs' are booleans in your castle rights object
+            if not gs.currentCastlingRights.wks and not gs.currentCastlingRights.wqs:
+                score -= 0.2
+
+                # --- BLACK CASTLING BONUSES ---
+        # Check Short Castle (Black): King on g8 (0,6), Rook on f8 (0,5)
+        if gs.board[0][6] == 'bK' and gs.board[0][5] == 'bR':
+            score -= 0.5  # Subtract because black advantage is negative
+
+        # Check Long Castle (Black): King on c8 (0,2), Rook on d8 (0,3)
+        if gs.board[0][2] == 'bK' and gs.board[0][3] == 'bR':
+            score -= 0.5
+
+        # Punishment for Black losing castling rights
+        if gs.board[0][4] == 'bK':
+            if not gs.currentCastlingRights.bks and not gs.currentCastlingRights.bqs:
+                score += 0.2  # Add score (good for white)
+
         return score

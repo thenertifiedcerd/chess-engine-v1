@@ -31,7 +31,7 @@ def main():
     sqSelected = ()
     playerClicks = []  # keep track of player clicks (two tuples: [(6,4), (4,4)])
     gameOver = False
-    playerOne = True # If True, human plays White. If False, AI plays White.
+    playerOne = False # If True, human plays White. If False, AI plays White.
     playerTwo = False # If True, human plays Black. If False, AI plays Black.
 
     # --- STOCKFISH SETUP (Uncomment if using the adapter) ---

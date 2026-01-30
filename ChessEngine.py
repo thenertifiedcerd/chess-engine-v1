@@ -123,6 +123,11 @@ class GameState:
 
 
 
+
+    # @staticmethod
+    # def getCaptureMoves(self):
+
+
     ### All moves considering checks
 
     def getValidMoves(self):
@@ -187,10 +192,7 @@ class GameState:
             for c in range(len(self.board[r])):
                 turn = self.board[r][c][0]
 
-                # --- CRITICAL CHECK: Do you have the Black turn logic here? ---
                 if (turn == 'w' and self.whiteToMove) or (turn == 'b' and not self.whiteToMove):
-                    # --------------------------------------------------------------
-
                     piece = self.board[r][c][1]
                     if piece == 'p':
                         self.getPawnMoves(r, c, moves)
@@ -206,21 +208,22 @@ class GameState:
                         self.getKingMoves(r, c, moves)
         return moves
 
-    def getPawnMoves(self, r, c, moves):
+    def getPawnMoves(self, r, c, moves, capturesOnly=False):
         # WHITE PAWNS
         if self.whiteToMove:
             # 1. Forward One
             if r - 1 >= 0 and self.board[r - 1][c] == "--":
-                if r - 1 == 0:  # Promotion!
-                    moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='Q'))
-                    moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='R'))
-                    moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='B'))
-                    moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='N'))
-                else:
-                    moves.append(Move((r, c), (r - 1, c), self.board))
-                    # Forward Two (Only possible if not promoting)
-                    if r == 6 and self.board[r - 2][c] == "--":
-                        moves.append(Move((r, c), (r - 2, c), self.board))
+                if not capturesOnly:
+                    if r - 1 == 0:  # Promotion!
+                        moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='Q'))
+                        moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='R'))
+                        moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='B'))
+                        moves.append(Move((r, c), (r - 1, c), self.board, promotedPiece='N'))
+                    else:
+                        moves.append(Move((r, c), (r - 1, c), self.board))
+                        # Forward Two (Only possible if not promoting)
+                        if r == 6 and self.board[r - 2][c] == "--":
+                            moves.append(Move((r, c), (r - 2, c), self.board))
 
             # 2. Captures (Left)
             if c - 1 >= 0 and r - 1 >= 0:
@@ -254,16 +257,17 @@ class GameState:
         else:
             # 1. Forward One
             if r + 1 <= 7 and self.board[r + 1][c] == "--":
-                if r + 1 == 7:  # Promotion!
-                    moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='Q'))
-                    moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='R'))
-                    moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='B'))
-                    moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='N'))
-                else:
-                    moves.append(Move((r, c), (r + 1, c), self.board))
-                    # Forward Two
-                    if r == 1 and self.board[r + 2][c] == "--":
-                        moves.append(Move((r, c), (r + 2, c), self.board))
+                if not capturesOnly:
+                    if r + 1 == 7:  # Promotion!
+                        moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='Q'))
+                        moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='R'))
+                        moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='B'))
+                        moves.append(Move((r, c), (r + 1, c), self.board, promotedPiece='N'))
+                    else:
+                        moves.append(Move((r, c), (r + 1, c), self.board))
+                        # Forward Two
+                        if r == 1 and self.board[r + 2][c] == "--":
+                            moves.append(Move((r, c), (r + 2, c), self.board))
 
             # 2. Captures (Left)
             if c - 1 >= 0 and r + 1 <= 7:
@@ -292,7 +296,7 @@ class GameState:
                         moves.append(Move((r, c), (r + 1, c + 1), self.board))
                 elif (r + 1, c + 1) == self.enPassantPossible:
                     moves.append(Move((r, c), (r + 1, c + 1), self.board, isEnPassantMove=True))
-            # add pawm promotion later on
+
                     
     def getRookMoves(self, r, c, moves):
         directions = ((-1, 0), (0, -1), (1,0), (0, 1)) # up, down, left, write
