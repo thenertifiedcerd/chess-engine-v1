@@ -186,6 +186,16 @@ class GameState:
         return False
     # All moves without checks
 
+    @staticmethod
+    def is_endgame(gs):
+        """Don't use null move in endgames - zugzwang is common"""
+        piece_count = 0
+        for row in gs.board:
+            for square in row:
+                if square != "--" and square[1] != 'K':
+                    piece_count += 1
+        return piece_count <= 6  # Adjust threshold as needed
+
     def getAllPossibleMoves(self):
         moves = []
         for r in range(len(self.board)):
