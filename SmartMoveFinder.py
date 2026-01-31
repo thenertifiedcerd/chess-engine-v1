@@ -1,9 +1,11 @@
 import random
+import time
 
 pieceScore = {"K": 0, "Q": 9, "R": 5, "B": 3, "N": 3, "p": 1}
 CHECKMATE = 1000
 STALEMATE = 0
 DEPTH = 3
+endTime = 0
 
 knightScores = [[1, 1, 1, 1, 1, 1, 1, 1],
                [1, 2, 2, 2, 2, 2, 2, 1],
@@ -73,22 +75,49 @@ piecePositionScores = {"N": knightScores, "Q": queenScores, "K": kingScores, "B"
 class SmartMoveFinder:
 
     @staticmethod
-    def findRandomMove(validMoves):
-        return validMoves[random.randint(0, len(validMoves) - 1)]
-
-    # 1. HELPER METHOD: Sets up the first call
-    @staticmethod
     def findBestMove(gs, validMoves):
-        global nextMove, counter
+        global nextMove, counter, endTime
         nextMove = None
         random.shuffle(validMoves)
         counter = 0
-        # We pass gs.whiteToMove as a VALUE, not a parameter definition
-        # SmartMoveFinder.findMoveMinMax(gs, validMoves, DEPTH, gs.whiteToMove)
-        # SmartMoveFinder.findMoveNegaMax(gs, validMoves, DEPTH, 1 if gs.whiteToMove else -1)
-        SmartMoveFinder.findMoveNegaMaxAlphaBeta(gs, validMoves, DEPTH, -CHECKMATE, CHECKMATE, 1 if gs.whiteToMove else -1)
-        print(f"After your move, the AI evaluated {counter} moves")
+        
+        # Think for 2.0 seconds
+        THINK_TIME = 2.0 
+        endTime = time.time() + THINK_TIME
+        
+        # 2. ITERATIVE DEEPENING LOOP
+        current_depth = 1
+        
+        while True:
+            if time.time() >= endTime:
+                break 
+                current_depth += 1
+                
+                # OPTIMIZATION: Put the best move from the previous depth first!
+                if nextMove in validMoves:
+                    validMoves.insert(0, validMoves.pop(validMoves.index(nextMove)))
+
+                
+            print(f"--- Starting Search at Depth {current_depth} ---")
+            
+            try:
+                # We expect this to update 'nextMove' if it finishes successfully
+                score = SmartMoveFinder.findMoveNegaMaxAlphaBeta(gs, validMoves, current_depth, -SmartMoveFinder.CHECKMATE, SmartMoveFinder.CHECKMATE, 1 if gs.whiteToMove else -1)
+                
+                print(f"Depth {current_depth} complete. Best Move: {nextMove}, Score: {score}")
+                
+                # Optimization: If we found a forced mate, stop searching!
+                if score == SmartMoveFinder.CHECKMATE or score == -SmartMoveFinder.CHECKMATE:
+                    break
+                    
+                current_depth += 1
+                
+            except TimeoutError:
+                print(f"Depth {current_depth} timed out! Discarding results.")
+                break # Stop the loop, use the result from the previous depth
+
         return nextMove
+
 
     # 2. RECURSIVE METHOD: The actual algorithm
     @staticmethod
@@ -193,9 +222,16 @@ class SmartMoveFinder:
         return maxScore
 
     @staticmethod
-    def findMoveNegaMaxAlphaBeta(gs, validMoves, depth, alpha, beta, turnMultiplier):
-        global nextMove, counter
+    def findMoveNegaMaxAlphaBeta(gs, validMoves, depth, alpha, beta, turnMultiplier, rootDepth):
+        global nextMove, counter, endTime
         counter += 1
+
+        # --- TIME CHECK ---
+        # Every 1000 nodes, check if we ran out of time.
+        # (Checking every node is too slow for Python)
+        if counter % 1000 == 0:
+            if time.time() >= endTime:
+                raise TimeoutError("Time Limit Exceeded")
 
         if depth == 0:
             # Instead of returning immediately, enter Quiescence Search
@@ -243,9 +279,9 @@ class SmartMoveFinder:
 
             if score > maxScore:
                 maxScore = score
-                if depth == DEPTH:
+                if depth == rootDepth:
                     nextMove = move
-                    print(move, score)
+
 
                 # Optimization: Stop searching if we found checkmate
                 if maxScore == CHECKMATE:
