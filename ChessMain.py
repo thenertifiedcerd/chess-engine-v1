@@ -31,7 +31,7 @@ def main():
     sqSelected = ()
     playerClicks = []  # keep track of player clicks (two tuples: [(6,4), (4,4)])
     gameOver = False
-    playerOne = False # If True, human plays White. If False, AI plays White.
+    playerOne = True # If True, human plays White. If False, AI plays White.
     playerTwo = False # If True, human plays Black. If False, AI plays Black.
 
     # --- STOCKFISH SETUP (Uncomment if using the adapter) ---
@@ -110,38 +110,32 @@ def main():
                     gameOver = False
 
         # --- AI MOVE FINDER LOGIC ---
-        if not gameOver and not humanTurn and not moveMade:
-            # OPTION 1: Random Mover (Currently Active)
+        if not gameOver and not humanTurn:
+            # Add extra protection: only let AI move once per turn change
+            # We use a simple state check instead of relying only on moveMade
             AIMove = SmartMoveFinder.findBestMove(gs, validMoves)
-            if AIMove is None:
-                AIMove = SmartMoveFinder.findRandomMove(validMoves)
-            # OPTION 2: Stockfish (Uncomment to use)
-            # stockfish.set_position_from_gs(gs)
-            # uci_move = stockfish.go(movetime=1000)
-            # if uci_move:
-            #     # You need a helper to convert UCI string back to Move object here
-            #     # For now, we stick to random to prevent crashes without the converter
-            #     pass
 
             if AIMove is None:
-                # If validMoves is empty, check why
-                if gs.checkMate or gs.staleMate:
-                    gameOver = True
-                else:
-                    # Retry generating moves if something glitched
-                    validMoves = gs.getValidMoves()
-            else:
+                AIMove = SmartMoveFinder.findRandomMove(validMoves)
+
+            if AIMove:
+                print("AI thinking complete → playing:", AIMove.getChessNotation())
                 gs.makeMove(AIMove)
                 animateMove(AIMove, screen, gs.board, clock)
-                moveMade = True
-                animate = True
                 print("AI:", AIMove.getChessNotation())
+                # Immediately update valid moves and force moveMade handling
+                validMoves = gs.getValidMoves()
+                # We don't need moveMade for AI anymore — but keep it for consistency
+                moveMade = True
+            else:
+                # No move → game probably over
+                if gs.checkMate or gs.staleMate:
+                    gameOver = True
 
         # Update valid moves after AI plays or Undo
         if moveMade:
             validMoves = gs.getValidMoves()
             moveMade = False
-            animate = False
 
         drawGameState(screen, gs, validMoves, sqSelected)
 

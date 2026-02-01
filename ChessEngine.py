@@ -143,17 +143,17 @@ class GameState:
         else:
             self.getCastleMoves(self.blackKingPosition[0], self.blackKingPosition[1], moves)
         # make the moves
-        for i in range(len(moves)-1, -1, -1):
+        for i in range(len(moves) - 1, -1, -1):
             self.makeMove(moves[i])
             # generate all opponent's moves
             # oppMoves = self.getAllPossibleMoves()
-        # see if these moves attack the king
+            # see if these moves attack the king
             self.whiteToMove = not self.whiteToMove
             if self.inCheck():
-                moves.remove(moves[i]) # if they attack the king, then it's invalid
+                moves.remove(moves[i])  # if they attack the king, then it's invalid
             self.whiteToMove = not self.whiteToMove
             self.undoMove()
-        if len(moves) == 0: # either checkmate or stalemate
+        if len(moves) == 0:  # either checkmate or stalemate
             if self.inCheck():
                 self.checkMate = True
                 print("Checkmate!")
@@ -163,6 +163,11 @@ class GameState:
         else:
             self.checkMate = False
             self.staleMate = False
+
+        # ADD THIS BLOCK HERE:
+        if self.is_only_two_kings(self.board):
+            self.staleMate = True  # Treat as draw
+            print("Draw - Only two kings remaining!")
 
         self.enPassantPossible = tempEnPassantPossible
         return moves
@@ -411,6 +416,15 @@ class GameState:
         if self.board[r][c-1] == "--" and self.board[r][c-2] == "--" and self.board[r][c-3] == "--":
             if not self.squareUnderAttack(r, c-1) and not self.squareUnderAttack(r, c-2):
                 moves.append(Move((r, c), (r, c-2), self.board, isCastleMove = True))
+
+    @staticmethod
+    def is_only_two_kings(board):
+        pieces = []
+        for row in board:
+            for square in row:
+                if square != "--":  # assuming "--" means empty
+                    pieces.append(square)
+        return len(pieces) == 2 and all('K' in piece for piece in pieces)
 
 
 class castleRights:
