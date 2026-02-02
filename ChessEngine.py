@@ -1,4 +1,5 @@
 from SmartMoveFinder import SmartMoveFinder
+import random
 
 ### This class is responsible for storing all the information about the current state of a chess game. It will also be responsible for determining valid moves at the current state. It will also be a move log.
 
@@ -34,9 +35,86 @@ class GameState:
                                              self.currentCastlingRights.wqs,
                                              self.currentCastlingRights.bqs)]
 
+        # 1. Initialize Zobrist Keys (Keep your existing random generation)
+        self.zobrist_table = [[[random.getrandbits(64) for _ in range(8)] for _ in range(8)] for _ in range(12)]
+        self.zobrist_castling = [random.getrandbits(64) for _ in range(4)]  # wks, wqs, bks, bqs
+        self.zobrist_enpassant = [random.getrandbits(64) for _ in range(8)]  # Files A-H
+        self.zobrist_turn = random.getrandbits(64)
+
+        self.piece_map = {
+            "wp": 0, "wN": 1, "wB": 2, "wR": 3, "wQ": 4, "wK": 5,
+            "bp": 6, "bN": 7, "bB": 8, "bR": 9, "bQ": 10, "bK": 11
+        }
+
+        # 2. Compute the initial hash (The only time we do it the slow way)
+        self.current_zobrist_hash = self.generate_initial_hash()
+
+        # 3. Create a log to store hashes for undo
+        self.zobrist_log = [self.current_zobrist_hash]
+
+    def generate_initial_hash(self):
+        """
+        Calculates the Zobrist hash from scratch.
+        This is computationally expensive O(64), so we ONLY use it at startup.
+        """
+        h = 0
+
+        # 1. Board Position
+        for r in range(8):
+            for c in range(8):
+                piece = self.board[r][c]
+                if piece != "--":
+                    idx = self.piece_map[piece]
+                    h ^= self.zobrist_table[idx][r][c]
+
+        # 2. Castling Rights
+        if self.currentCastlingRights.wks: h ^= self.zobrist_castling[0]
+        if self.currentCastlingRights.wqs: h ^= self.zobrist_castling[1]
+        if self.currentCastlingRights.bks: h ^= self.zobrist_castling[2]
+        if self.currentCastlingRights.bqs: h ^= self.zobrist_castling[3]
+
+        # 3. En Passant
+        # The enPassantPossible variable holds coordinates (row, col) or is empty ()
+        if self.enPassantPossible != ():
+            h ^= self.zobrist_enpassant[self.enPassantPossible[1]]  # Hash based on the File (column)
+
+        # 4. Turn
+        if self.whiteToMove:
+            h ^= self.zobrist_turn
+
+        return h
+
 
     ### makeMove() will execute a move. This will not work for castling, pawn promotion, and en-passant.
     def makeMove(self, move):
+        # --- ZOBRIST: START INCREMENTAL UPDATE (REMOVE OLD STATE) ---
+        new_hash = self.current_zobrist_hash
+
+        # 1. XOR Out Moving Piece (from Start Square)
+        new_hash ^= self.zobrist_table[self.piece_map[move.pieceMoved]][move.startRow][move.startCol]
+
+        # 2. XOR Out Captured Piece
+        if move.pieceCaptured != '--':
+            if move.isEnPassantMove:
+                # For En Passant, capture is at [startRow][endCol]
+                captured_pawn = 'bp' if self.whiteToMove else 'wp'
+                new_hash ^= self.zobrist_table[self.piece_map[captured_pawn]][move.startRow][move.endCol]
+            else:
+                # Standard capture at [endRow][endCol]
+                new_hash ^= self.zobrist_table[self.piece_map[move.pieceCaptured]][move.endRow][move.endCol]
+
+        # 3. XOR Out Old Castling Rights (Before they change)
+        if self.currentCastlingRights.wks: new_hash ^= self.zobrist_castling[0]
+        if self.currentCastlingRights.wqs: new_hash ^= self.zobrist_castling[1]
+        if self.currentCastlingRights.bks: new_hash ^= self.zobrist_castling[2]
+        if self.currentCastlingRights.bqs: new_hash ^= self.zobrist_castling[3]
+
+        # 4. XOR Out Old En Passant File (if one existed)
+        if self.enPassantPossible != ():
+            new_hash ^= self.zobrist_enpassant[self.enPassantPossible[1]]
+        # -------------------------------------------------------------
+
+        # === ORIGINAL LOGIC STARTS HERE ===
         self.board[move.startRow][move.startCol] = "--"
         self.board[move.endRow][move.endCol] = move.pieceMoved
         self.moveLog.append(move)
@@ -51,29 +129,30 @@ class GameState:
 
         # pawn promotion
         if move.isPawnPromotion:
-            # promotedPiece = input("Promote to Q, R, B, or N: ")
-            self.board[move.endRow][move.endCol] = move.pieceMoved[0] + move.promotedPiece
+            # Assumes 'Q' if not specified, usually handled by Move class
+            promotedType = getattr(move, 'promotedPiece', 'Q')
+            self.board[move.endRow][move.endCol] = move.pieceMoved[0] + promotedType
 
         # en passant capture
         if move.isEnPassantMove:
             self.board[move.startRow][move.endCol] = "--"
 
         # update enPassantPossible variable
-        if move.pieceMoved[1] == 'p' and abs(move.startRow - move.endRow) == 2: # two square pawn advance
+        if move.pieceMoved[1] == 'p' and abs(move.startRow - move.endRow) == 2:  # two square pawn advance
             self.enPassantPossible = ((move.startRow + move.endRow) // 2, move.startCol)
         else:
             self.enPassantPossible = ()
 
         # castle move
         if move.isCastleMove:
-            if move.endCol - move.startCol == 2: # kingside
-                self.board[move.endRow][move.endCol - 1] = self.board[move.endRow][move.endCol + 1] # move rook
-                self.board[move.endRow][move.endCol + 1] = "--" # empty rook's original square
-            else: # queenside
-                self.board[move.endRow][move.endCol + 1] = self.board[move.endRow][move.endCol - 2] # move rook
-                self.board[move.endRow][move.endCol - 2] = "--" # empty rook's original square
+            if move.endCol - move.startCol == 2:  # kingside
+                self.board[move.endRow][move.endCol - 1] = self.board[move.endRow][move.endCol + 1]  # move rook
+                self.board[move.endRow][move.endCol + 1] = "--"  # empty rook's original square
+            else:  # queenside
+                self.board[move.endRow][move.endCol + 1] = self.board[move.endRow][move.endCol - 2]  # move rook
+                self.board[move.endRow][move.endCol - 2] = "--"  # empty rook's original square
 
-        # update castling rights - whenever it is a rook or king move
+        # update castling rights
         self.updateCastleRights(move)
         self.castleRightsLog.append(castleRights(self.currentCastlingRights.wks,
                                                  self.currentCastlingRights.bks,
@@ -81,14 +160,54 @@ class GameState:
                                                  self.currentCastlingRights.bqs))
         self.checkMate = False
         self.staleMate = False
+        # === ORIGINAL LOGIC ENDS HERE ===
+
+        # --- ZOBRIST: FINISH INCREMENTAL UPDATE (ADD NEW STATE) ---
+
+        # 5. XOR In Moving Piece (at Destination)
+        if move.isPawnPromotion:
+            promotedType = getattr(move, 'promotedPiece', 'Q')
+            new_piece = move.pieceMoved[0] + promotedType
+            new_hash ^= self.zobrist_table[self.piece_map[new_piece]][move.endRow][move.endCol]
+        else:
+            new_hash ^= self.zobrist_table[self.piece_map[move.pieceMoved]][move.endRow][move.endCol]
+
+        # 6. XOR In Rook Move (if Castling)
+        if move.isCastleMove:
+            rook = 'wR' if move.pieceMoved[0] == 'w' else 'bR'
+            if move.endCol - move.startCol == 2:  # Kingside
+                # Remove Rook from H file, Add to F file
+                new_hash ^= self.zobrist_table[self.piece_map[rook]][move.endRow][move.endCol + 1]
+                new_hash ^= self.zobrist_table[self.piece_map[rook]][move.endRow][move.endCol - 1]
+            else:  # Queenside
+                # Remove Rook from A file, Add to D file
+                new_hash ^= self.zobrist_table[self.piece_map[rook]][move.endRow][move.endCol - 2]
+                new_hash ^= self.zobrist_table[self.piece_map[rook]][move.endRow][move.endCol + 1]
+
+        # 7. XOR In New Castling Rights (After update)
+        if self.currentCastlingRights.wks: new_hash ^= self.zobrist_castling[0]
+        if self.currentCastlingRights.wqs: new_hash ^= self.zobrist_castling[1]
+        if self.currentCastlingRights.bks: new_hash ^= self.zobrist_castling[2]
+        if self.currentCastlingRights.bqs: new_hash ^= self.zobrist_castling[3]
+
+        # 8. XOR In New En Passant File (if valid)
+        if self.enPassantPossible != ():
+            new_hash ^= self.zobrist_enpassant[self.enPassantPossible[1]]
+
+        # 9. Flip Turn
+        new_hash ^= self.zobrist_turn
+
+        # 10. Commit Hash
+        self.current_zobrist_hash = new_hash
+        self.zobrist_log.append(new_hash)
 
     ### Undo the last move
     def undoMove(self):
-        if len(self.moveLog) != 0: # to confirm there is a move to undo
+        if len(self.moveLog) != 0:  # to confirm there is a move to undo
             move = self.moveLog.pop()
             self.board[move.startRow][move.startCol] = move.pieceMoved
             self.board[move.endRow][move.endCol] = move.pieceCaptured
-            self.whiteToMove = not self.whiteToMove # switch turns back 
+            self.whiteToMove = not self.whiteToMove  # switch turns back
             if move.pieceMoved == "wK":
                 self.whiteKingPosition = (move.startRow, move.startCol)
             elif move.pieceMoved == "bK":
@@ -96,7 +215,7 @@ class GameState:
 
             # undoing en passant
             if move.isEnPassantMove:
-                self.board[move.endRow][move.endCol] = "--" # leave landing square blank
+                self.board[move.endRow][move.endCol] = "--"  # leave landing square blank
                 self.board[move.startRow][move.endCol] = move.pieceCaptured
                 self.enPassantPossible = (move.endRow, move.endCol)
 
@@ -105,7 +224,7 @@ class GameState:
                 self.enPassantPossible = ()
 
             # undoing castling rights
-            self.castleRightsLog.pop() # get rid of the new castle rights from the move we are undoing
+            self.castleRightsLog.pop()  # get rid of the new castle rights from the move we are undoing
             lastRights = self.castleRightsLog[-1]
             self.currentCastlingRights.wks = lastRights.wks
             self.currentCastlingRights.bks = lastRights.bks
@@ -114,19 +233,22 @@ class GameState:
 
             # undo castling move
             if move.isCastleMove:
-                if move.endCol - move.startCol == 2: # kingside
-                    self.board[move.endRow][move.endCol + 1] = self.board[move.endRow][move.endCol - 1] # move rook back
-                    self.board[move.endRow][move.endCol - 1] = "--" # empty square
-                else: # queenside
-                    self.board[move.endRow][move.endCol - 2] = self.board[move.endRow][move.endCol + 1] # move rook back
-                    self.board[move.endRow][move.endCol + 1] = "--" # empty square
+                if move.endCol - move.startCol == 2:  # kingside
+                    self.board[move.endRow][move.endCol + 1] = self.board[move.endRow][
+                        move.endCol - 1]  # move rook back
+                    self.board[move.endRow][move.endCol - 1] = "--"  # empty square
+                else:  # queenside
+                    self.board[move.endRow][move.endCol - 2] = self.board[move.endRow][
+                        move.endCol + 1]  # move rook back
+                    self.board[move.endRow][move.endCol + 1] = "--"  # empty square
 
-
-
+            # --- ZOBRIST: RESTORE HASH ---
+            if len(self.zobrist_log) > 0:
+                self.zobrist_log.pop()
+                self.current_zobrist_hash = self.zobrist_log[-1]
 
     # @staticmethod
     # def getCaptureMoves(self):
-
 
     ### All moves considering checks
 

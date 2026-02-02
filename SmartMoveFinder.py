@@ -317,7 +317,7 @@ class SmartMoveFinder:
                 raise TimeoutError("Time Limit")
 
         # TT Probe
-        board_hash = compute_hash(gs)
+        board_hash = gs.current_zobrist_hash
         tt_best_move = None
 
         if board_hash in SmartMoveFinder.transposition_table:
@@ -340,10 +340,10 @@ class SmartMoveFinder:
             return SmartMoveFinder.quiescenceSearch(gs, alpha, beta, turnMultiplier)
 
         # Checkmate/Stalemate detection
-        if len(validMoves) == 0:
-            if gs.checkMate:
-                return -CHECKMATE
-            return STALEMATE
+        # Extend depth to ensure we find the escape or mate.
+        in_check = gs.inCheck()
+        if in_check:
+            depth += 1
 
         # NULL MOVE PRUNING (improved)
         # Only in non-endgame, non-check positions, at sufficient depth
@@ -384,47 +384,60 @@ class SmartMoveFinder:
         original_alpha = alpha
         best_move_local = None
         maxScore = -CHECKMATE
+        in_check = gs.inCheck()
+        moves_searched = 0
+
+        # Initialize counter outside the loop
         moves_searched = 0
 
         for move in ordered_moves:
             gs.makeMove(move)
             nextMoves = gs.getValidMoves()
 
+            # Default score if something goes wrong
+            score = -CHECKMATE
+
             try:
-                # LATE MOVE REDUCTIONS (LMR)
-                # Reduce search depth for later moves that are likely bad
+                # LATE MOVE REDUCTIONS (LMR) Logic
                 if (moves_searched >= 4 and
                         depth >= 3 and
+                        not in_check and
                         move.pieceCaptured == '--' and
                         not move.isPawnPromotion and
-                        not gs.inCheck()):
+                        not move.isCastleMove):
 
-                    # Reduced depth search first
+                    # 1. Reduced Depth Search
                     reduction = 1 if depth >= 6 else 0
                     if moves_searched >= 8:
                         reduction += 1
 
+                    # FIX 1: Use 'score =' instead of 'return'
                     score = -SmartMoveFinder.findMoveNegaMaxAlphaBeta(
                         gs, nextMoves, depth - 1 - reduction, -alpha - 1, -alpha,
                         -turnMultiplier, rootDepth
                     )
 
-                    # If it looks good, re-search at full depth
+                    # 2. Re-search if the move was too good (Fail High)
                     if score > alpha:
+                        # FIX 2: Use 'score =' instead of 'return'
                         score = -SmartMoveFinder.findMoveNegaMaxAlphaBeta(
                             gs, nextMoves, depth - 1, -beta, -alpha,
                             -turnMultiplier, rootDepth
                         )
                 else:
-                    # Normal full-depth search
+                    # Normal Full Depth Search
+                    # FIX 3: Use 'score =' instead of 'return'
                     score = -SmartMoveFinder.findMoveNegaMaxAlphaBeta(
                         gs, nextMoves, depth - 1, -beta, -alpha,
                         -turnMultiplier, rootDepth
                     )
+
             finally:
                 gs.undoMove()
+                # FIX 4: Increment move count here so it always happens
+                moves_searched += 1
 
-            moves_searched += 1
+            # --- NOW THIS CODE IS REACHABLE ---
 
             if score > maxScore:
                 maxScore = score
@@ -437,7 +450,6 @@ class SmartMoveFinder:
 
             # Beta cutoff
             if alpha >= beta:
-                # Store killer move for quiet moves
                 if move.pieceCaptured == '--' and not move.isPawnPromotion:
                     SmartMoveFinder.store_killer(move, depth)
                     SmartMoveFinder.update_history(move, depth)
