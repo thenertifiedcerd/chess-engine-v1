@@ -187,8 +187,7 @@ class SmartMoveFinder:
         while True:
             if time.time() >= endTime:
                 break
-
-            print(f"--- Depth {current_depth} ---")
+            # print(f"--- Depth {current_depth} ---")
             try:
                 score = SmartMoveFinder.findMoveNegaMaxAlphaBeta(
                     gs, validMoves, current_depth, -CHECKMATE, CHECKMATE,
@@ -199,7 +198,7 @@ class SmartMoveFinder:
 
                 # If we found mate, no need to search deeper
                 if abs(score) >= CHECKMATE - 100:
-                    print(f"Mate found at depth {current_depth}")
+                    # print(f"Mate found at depth {current_depth}")
                     break
 
                 current_depth += 1
@@ -210,10 +209,10 @@ class SmartMoveFinder:
                     validMoves.insert(0, nextMove)
 
             except TimeoutError:
-                print(f"Time's up! Stopped at depth {current_depth}")
+                # print(f"Time's up! Stopped at depth {current_depth}")
                 break
 
-        print(f"Final depth: {current_depth}, Score: {best_score}, Positions: {counter}")
+        # print(f"Final depth: {current_depth}, Score: {best_score}, Positions: {counter}")
         return nextMove
 
     @staticmethod

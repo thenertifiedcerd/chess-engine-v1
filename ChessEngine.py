@@ -52,6 +52,74 @@ class GameState:
         # 3. Create a log to store hashes for undo
         self.zobrist_log = [self.current_zobrist_hash]
 
+
+    def load_fen(self, fen):
+        parts = fen.split()
+        board_part, turn, castling, ep = parts[:4]
+
+        self.board = [["--"] * 8 for _ in range(8)]
+        rows = board_part.split("/")
+
+        for r in range(8):
+            c = 0
+            for ch in rows[r]:
+                if ch.isdigit():
+                    c += int(ch)
+                else:
+                    color = 'w' if ch.isupper() else 'b'
+                    piece = ch.upper()
+                    if piece == 'P': piece = 'p'
+                    self.board[r][c] = color + piece
+                    c += 1
+
+        self.whiteToMove = (turn == 'w')
+
+        self.currentCastlingRights = castleRights(
+            'K' in castling, 'k' in castling,
+            'Q' in castling, 'q' in castling
+        )
+
+        self.enPassantPossible = ()
+        if ep != '-':
+            col = Move.filesToCols[ep[0]]
+            row = Move.ranksToRows[ep[1]]
+            self.enPassantPossible = (row, col)
+
+        self.moveLog = []
+        self.current_zobrist_hash = self.generate_initial_hash()
+        self.zobrist_log = [self.current_zobrist_hash]
+
+    def parse_uci_move(gs, uci):
+        start_col = Move.filesToCols[uci[0]]
+        start_row = Move.ranksToRows[uci[1]]
+        end_col = Move.filesToCols[uci[2]]
+        end_row = Move.ranksToRows[uci[3]]
+
+        promoted = uci[4].upper() if len(uci) == 5 else 'Q'
+
+        for move in gs.getValidMoves():
+            if (move.startRow == start_row and
+                    move.startCol == start_col and
+                    move.endRow == end_row and
+                    move.endCol == end_col):
+
+                if move.isPawnPromotion:
+                    move.promotedPiece = promoted
+                return move
+
+        return None
+
+    def move_to_uci(move):
+        s = (
+                Move.colsToFiles[move.startCol] +
+                Move.rowsToRanks[move.startRow] +
+                Move.colsToFiles[move.endCol] +
+                Move.rowsToRanks[move.endRow]
+        )
+        if move.isPawnPromotion:
+            s += move.promotedPiece.lower()
+        return s
+
     def generate_initial_hash(self):
         """
         Calculates the Zobrist hash from scratch.
