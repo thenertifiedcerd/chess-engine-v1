@@ -1,7 +1,9 @@
 import random
 import time
 
-pieceScore = {"K": 0, "Q": 9, "R": 5, "B": 3, "N": 3, "p": 1}
+# King is scored as CHECKMATE so that any position where a king can be
+# captured is treated as an immediate decisive result by the evaluator.
+pieceScore = {"K": 1000, "Q": 9, "R": 5, "B": 3, "N": 3, "p": 1}
 CHECKMATE = 1000
 STALEMATE = 0
 DEPTH = 6
@@ -127,6 +129,11 @@ class SmartMoveFinder:
     history_table = {}
 
     @staticmethod
+    def set_time_limit(seconds):
+        global endTime
+        endTime = time.time() + seconds
+
+    @staticmethod
     def clear_search_data():
         """Clear killer moves and history between searches"""
         SmartMoveFinder.killer_moves = [[None, None] for _ in range(100)]
@@ -172,54 +179,72 @@ class SmartMoveFinder:
     @staticmethod
     def findBestMove(gs, validMoves):
         global nextMove, counter, endTime
-        nextMove = None
+
+        # 1. SAFETY NET: Start with a random valid move.
+        # If Depth 1 fails instantly (0.01s left), we play this instead of crashing.
+        best_guaranteed_move = random.choice(validMoves)
+
         random.shuffle(validMoves)
         counter = 0
-        THINK_TIME = 5.0  # Increased from 2.0 for stronger play
-        endTime = time.time() + THINK_TIME
 
-        # Clear search data at start of new search
+        # Ensure we have a valid time limit
+        if 'endTime' not in globals() or endTime < time.time():
+            endTime = time.time() + 5.0  # Default fallback
+
         SmartMoveFinder.clear_search_data()
-
         current_depth = 1
-        best_score = -CHECKMATE
 
         while True:
-            if time.time() >= endTime:
+            # 2. TIME CHECK:
+            # If we are almost out of time, don't even start the next depth.
+            # But ALWAYS let Depth 1 run, even if time is low, to get rid of the random move.
+            if current_depth > 1 and time.time() >= endTime:
                 break
-            # print(f"--- Depth {current_depth} ---")
+
             try:
+                # Start the search for this depth
                 score = SmartMoveFinder.findMoveNegaMaxAlphaBeta(
-                    gs, validMoves, current_depth, -CHECKMATE, CHECKMATE,
-                    1 if gs.whiteToMove else -1, current_depth
+                    gs, validMoves, current_depth, -float('inf'), float('inf'),
+                    1 if gs.whiteToMove else -1, current_depth, 0
                 )
 
-                best_score = score
+                # 3. THE "SAFE MOVE" UPDATE
+                # We only reach this line if the ENTIRE depth finished without a TimeoutError.
+                # Now it is safe to update our "official" move.
+                if nextMove is not None:
+                    best_guaranteed_move = nextMove
 
-                # If we found mate, no need to search deeper
+                # If we found checkmate, stop searching immediately
                 if abs(score) >= CHECKMATE - 100:
-                    # print(f"Mate found at depth {current_depth}")
                     break
 
                 current_depth += 1
 
-                # Move ordering: put best move first for next iteration
+                # Optimization: Put best move first for next iteration
                 if nextMove and nextMove in validMoves:
                     validMoves.remove(nextMove)
                     validMoves.insert(0, nextMove)
 
             except TimeoutError:
-                # print(f"Time's up! Stopped at depth {current_depth}")
+                # 4. THE REVERT LOGIC
+                # We ran out of time in the middle of a depth.
+                # DISCARD the partial results.
+                # 'best_guaranteed_move' is still holding the result from the previous completed depth.
                 break
 
-        # print(f"Final depth: {current_depth}, Score: {best_score}, Positions: {counter}")
-        return nextMove
+        return best_guaranteed_move
 
     @staticmethod
     def quiescenceSearch(gs, alpha, beta, turnMultiplier):
-        """Quiescence search with delta pruning"""
-        stand_pat = turnMultiplier * SmartMoveFinder.scoreBoard(gs)
+        global counter, endTime
+        counter += 1
 
+        # 1. TIME CHECK
+        if counter % 2000 == 0:
+            if time.time() >= endTime:
+                raise TimeoutError("Time Limit")
+
+        stand_pat = turnMultiplier * SmartMoveFinder.scoreBoard(gs)
         if stand_pat >= beta:
             return beta
 
@@ -306,7 +331,7 @@ class SmartMoveFinder:
         return [move for score, move in scored_moves]
 
     @staticmethod
-    def findMoveNegaMaxAlphaBeta(gs, validMoves, depth, alpha, beta, turnMultiplier, rootDepth):
+    def findMoveNegaMaxAlphaBeta(gs, validMoves, depth, alpha, beta, turnMultiplier, rootDepth, ply=0):
         global nextMove, counter, endTime
         counter += 1
 
@@ -359,7 +384,7 @@ class SmartMoveFinder:
 
             score = -SmartMoveFinder.findMoveNegaMaxAlphaBeta(
                 gs, gs.getValidMoves(), depth - 1 - R, -beta, -beta + 1,
-                -turnMultiplier, rootDepth
+                -turnMultiplier, rootDepth, ply + 1
             )
 
             gs.whiteToMove = not gs.whiteToMove
@@ -369,7 +394,7 @@ class SmartMoveFinder:
                 if depth >= 8:
                     verify_score = SmartMoveFinder.findMoveNegaMaxAlphaBeta(
                         gs, validMoves, depth - R, alpha, beta,
-                        turnMultiplier, rootDepth
+                        turnMultiplier, rootDepth, ply
                     )
                     if verify_score >= beta:
                         return beta
@@ -378,6 +403,27 @@ class SmartMoveFinder:
 
         # MOVE ORDERING
         ordered_moves = SmartMoveFinder.order_moves(validMoves, tt_best_move, depth)
+
+        # NEW: if there are no legal moves here, this is either checkmate or
+        # stalemate. gs.checkMate / gs.staleMate were just set by the
+        # gs.getValidMoves() call the caller made before recursing in, so we
+        # can trust them. Without this check, maxScore below defaults to
+        # -CHECKMATE either way, meaning the engine scored "I got stalemated"
+        # exactly as badly as "I got checkmated" - a draw treated as a loss.
+        if not ordered_moves:
+            if gs.staleMate:
+                return STALEMATE
+            else:
+                # Mate-distance scoring: a mate found closer to the root (smaller
+                # ply) is worth more than one found deeper, so the engine prefers
+                # the fastest mate and prefers to delay getting mated itself.
+                # NOTE: this uses `ply` (incremented once per real recursive call)
+                # rather than rootDepth - depth, because `depth` gets bumped by
+                # search extensions (like the check-extension right above) which
+                # would otherwise silently cancel out the ply count - and a
+                # checkmate is *always* preceded by being in check, so that
+                # cancellation would fire on essentially every real mate.
+                return -(CHECKMATE - ply)
 
         # Main search loop
         original_alpha = alpha
@@ -413,7 +459,7 @@ class SmartMoveFinder:
                     # FIX 1: Use 'score =' instead of 'return'
                     score = -SmartMoveFinder.findMoveNegaMaxAlphaBeta(
                         gs, nextMoves, depth - 1 - reduction, -alpha - 1, -alpha,
-                        -turnMultiplier, rootDepth
+                        -turnMultiplier, rootDepth, ply + 1
                     )
 
                     # 2. Re-search if the move was too good (Fail High)
@@ -421,14 +467,14 @@ class SmartMoveFinder:
                         # FIX 2: Use 'score =' instead of 'return'
                         score = -SmartMoveFinder.findMoveNegaMaxAlphaBeta(
                             gs, nextMoves, depth - 1, -beta, -alpha,
-                            -turnMultiplier, rootDepth
+                            -turnMultiplier, rootDepth, ply + 1
                         )
                 else:
                     # Normal Full Depth Search
                     # FIX 3: Use 'score =' instead of 'return'
                     score = -SmartMoveFinder.findMoveNegaMaxAlphaBeta(
                         gs, nextMoves, depth - 1, -beta, -alpha,
-                        -turnMultiplier, rootDepth
+                        -turnMultiplier, rootDepth, ply + 1
                     )
 
             finally:
@@ -835,13 +881,27 @@ class SmartMoveFinder:
         elif gs.staleMate:
             return STALEMATE
 
+        # King-capture guard: if either king is missing from the board the
+        # position is illegal (should never reach evaluation) but we handle
+        # it defensively so the engine never crashes or scores garbage.
+        has_wK = any(gs.board[r][c] == 'wK' for r in range(8) for c in range(8))
+        has_bK = any(gs.board[r][c] == 'bK' for r in range(8) for c in range(8))
+        if not has_wK:
+            return -CHECKMATE  # White king gone → black wins
+        if not has_bK:
+            return CHECKMATE   # Black king gone → white wins
+
         score = 0
 
-        # Tempo bonus only in middlegame
+        # 1. Fetch King Positions (Fast lookup from GameState)
+        wK_row, wK_col = gs.whiteKingPosition
+        bK_row, bK_col = gs.blackKingPosition
+
+        # Tempo bonus
         if not SmartMoveFinder.is_endgame(gs):
             score += 0.12 if gs.whiteToMove else -0.12
 
-        # Material + Position
+        # 2. Main Board Loop (Material + Position + KNIGHT SAFETY)
         for row in range(len(gs.board)):
             for col in range(len(gs.board[row])):
                 square = gs.board[row][col]
@@ -849,6 +909,7 @@ class SmartMoveFinder:
                     piece_type = square[1]
                     piece_color = square[0]
 
+                    # --- EXISTING SCORING LOGIC ---
                     if piece_type == 'K':
                         pos_table = kingScores_eg if SmartMoveFinder.is_endgame(gs) else piecePositionScores["K"]
                     else:
@@ -868,6 +929,28 @@ class SmartMoveFinder:
                         score += material_score + (position_score * 0.1)
                     elif piece_color == 'b':
                         score -= (material_score + (position_score * 0.1))
+
+                    # --- NEW: KNIGHT DANGER LOGIC (The Fix) ---
+                    # If we find a Knight, check if it threatens the enemy King
+                    if piece_type == 'N':
+                        if piece_color == 'w':
+                            # White Knight attacking Black King?
+                            dist_row = abs(row - bK_row)
+                            dist_col = abs(col - bK_col)
+                            # If Knight is close (<=2 squares), Black is in danger
+                            if dist_row <= 2 and dist_col <= 2:
+                                score += 0.25  # Bonus for White
+                        else:
+                            # Black Knight attacking White King?
+                            dist_row = abs(row - wK_row)
+                            dist_col = abs(col - wK_col)
+                            # If Knight is close, White is in danger
+                            if dist_row <= 2 and dist_col <= 2:
+                                score -= 0.25  # Penalty for White
+
+                    if piece_type == 'Q':
+                        if len(gs.moveLog) < 16:
+                            score -= 0.5 if piece_color == 'w' else -0.5
 
         # Castling evaluation
         if gs.board[7][6] == 'wK' and gs.board[7][5] == 'wR':
